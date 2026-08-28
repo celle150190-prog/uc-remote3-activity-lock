@@ -12,58 +12,10 @@ on:
 
 env:
   UPSTREAM_COMMIT: f3d34daea76239a92b5d43793f9eb849e5d0fc19
-  QT_VERSION: 5.15.2
 
 jobs:
-  desktop-build:
-    name: Desktop build / QML compile check
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout overlay
-        uses: actions/checkout@v4
-        with:
-          path: overlay
-
-      - name: Checkout upstream remote-ui
-        uses: actions/checkout@v4
-        with:
-          repository: unfoldedcircle/remote-ui
-          ref: ${{ env.UPSTREAM_COMMIT }}
-          path: remote-ui
-          submodules: recursive
-
-      - name: Apply Activity Lock patch
-        run: python3 overlay/tools/apply_activity_lock.py remote-ui
-
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: ${{ env.QT_VERSION }}
-          modules: qtvirtualkeyboard
-          archives: qtbase qtdeclarative qtmultimedia qtquickcontrols2 qtsvg qttools qtwebsockets
-          cache: true
-
-      - name: Configure
-        working-directory: remote-ui
-        run: |
-          mkdir -p build binaries
-          export UC_BIN="$PWD/binaries/linux-x64/release"
-          mkdir -p "$UC_BIN"
-          cd build
-          qmake ../remote-ui.pro CONFIG+=release
-
-      - name: Build
-        working-directory: remote-ui/build
-        run: make -j2
-
-      - name: Upload desktop artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: remote3-activity-lock-desktop
-          path: remote-ui/binaries/**/release/remote-ui
-
-  embedded-arm64-experimental:
-    name: ARM64 build (compatibility validation)
+  embedded-arm64:
+    name: Remote 3 ARM64 build
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout overlay
@@ -93,8 +45,13 @@ jobs:
             unfoldedcircle/r2-toolchain-qt-5.15.8-static \
             bash -lc 'cd /sources && qmake remote-ui.pro CONFIG+=release CONFIG+=static && make -j$(nproc)'
 
-      - name: Upload ARM64 experimental artifact
+      - name: Verify ARM64 binary
+        run: |
+          test -f remote-ui/binaries/linux-arm64/release/remote-ui
+          file remote-ui/binaries/linux-arm64/release/remote-ui
+
+      - name: Upload Remote 3 firmware binary
         uses: actions/upload-artifact@v4
         with:
-          name: remote3-activity-lock-arm64-experimental
+          name: remote3-activity-lock-arm64
           path: remote-ui/binaries/linux-arm64/release/remote-ui
