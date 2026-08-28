@@ -12,6 +12,7 @@ on:
 
 env:
   UPSTREAM_COMMIT: f3d34daea76239a92b5d43793f9eb849e5d0fc19
+  BIN_OUTPUT_PATH: binaries
 
 jobs:
   embedded-arm64:
@@ -30,28 +31,57 @@ jobs:
           ref: ${{ env.UPSTREAM_COMMIT }}
           path: remote-ui
           submodules: recursive
+          fetch-depth: 0
 
       - name: Apply Activity Lock patch
         run: python3 overlay/tools/apply_activity_lock.py remote-ui
 
-      - name: Build with official upstream ARM64 toolchain
+      - name: Prepare official upstream build layout
+        shell: bash
         run: |
+          set -euxo pipefail
+          mkdir -p remote-ui/build
+          mkdir -p remote-ui/binaries
+          echo "UC_BIN=${GITHUB_WORKSPACE}/remote-ui/binaries/linux-arm64/release" >> "$GITHUB_ENV"
+
+      - name: Build with official upstream ARM64 toolchain
+        shell: bash
+        run: |
+          set -euxo pipefail
           docker pull unfoldedcircle/r2-toolchain-qt-5.15.8-static
-          mkdir -p remote-ui/binaries/linux-arm64/release
           docker run --rm \
             --user=$(id -u):$(id -g) \
-            -e UC_BIN=/sources/binaries/linux-arm64/release \
-            -v "$PWD/remote-ui:/sources" \
-            unfoldedcircle/r2-toolchain-qt-5.15.8-static \
-            bash -lc 'cd /sources && qmake remote-ui.pro CONFIG+=release CONFIG+=static && make -j$(nproc)'
+            -v "${GITHUB_WORKSPACE}/remote-ui:/sources" \
+            unfoldedcircle/r2-toolchain-qt-5.15.8-static
 
-      - name: Verify ARM64 binary
+      - name: Locate and verify ARM64 binary
+        shell: bash
         run: |
-          test -f remote-ui/binaries/linux-arm64/release/remote-ui
-          file remote-ui/binaries/linux-arm64/release/remote-ui
+          set -euxo pipefail
+          echo "Build output tree:"
+          find remote-ui/binaries -maxdepth 5 -type f -print | sort
 
-      - name: Upload Remote 3 firmware binary
+          BINARY="$(find remote-ui/binaries -type f -name 'remote-ui' -perm -u+x | head -n 1)"
+          test -n "$BINARY"
+          test -s "$BINARY"
+
+          echo "BINARY=$BINARY" >> "$GITHUB_ENV"
+          file "$BINARY"
+          file "$BINARY" | grep -Ei 'ARM aarch64|ARM64'
+
+          mkdir -p artifact
+          cp "$BINARY" artifact/remote-ui
+          if [ -f "$(dirname "$BINARY")/version.txt" ]; then
+            cp "$(dirname "$BINARY")/version.txt" artifact/version.txt
+          fi
+          chmod +x artifact/remote-ui
+          tar czvf remote3-activity-lock-arm64.tar.gz -C artifact .
+          ls -lah artifact remote3-activity-lock-arm64.tar.gz
+
+      - name: Upload Remote 3 ARM64 artifact
         uses: actions/upload-artifact@v4
         with:
           name: remote3-activity-lock-arm64
-          path: remote-ui/binaries/linux-arm64/release/remote-ui
+          path: remote3-activity-lock-arm64.tar.gz
+          if-no-files-found: error
+          retention-days: 7
