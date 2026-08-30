@@ -73,7 +73,7 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          rm -rf custom-ui-package remote3-activity-lock-custom-ui.tar.gz
+          rm -rf custom-ui-package package-validation remote3-activity-lock-custom-ui.tar.gz
           mkdir -p custom-ui-package/bin custom-ui-package/config custom-ui-package/data
 
           cp "$BINARY" custom-ui-package/bin/remote-ui
@@ -110,11 +110,21 @@ jobs:
           echo "Package contents:"
           tar tzvf remote3-activity-lock-custom-ui.tar.gz
 
-          echo "Checking required package entries..."
-          tar tzf remote3-activity-lock-custom-ui.tar.gz | grep -qx './release.json'
-          tar tzf remote3-activity-lock-custom-ui.tar.gz | grep -qx './bin/remote-ui'
-          tar tzf remote3-activity-lock-custom-ui.tar.gz | grep -qx './config/'
-          tar tzf remote3-activity-lock-custom-ui.tar.gz | grep -qx './data/'
+          echo "Validating archive by extracting it..."
+          mkdir -p package-validation
+          tar xzf remote3-activity-lock-custom-ui.tar.gz -C package-validation
+
+          echo "Extracted package tree:"
+          find package-validation -maxdepth 3 -print | sort
+
+          echo "Checking required extracted package entries..."
+          test -f package-validation/release.json
+          test -x package-validation/bin/remote-ui
+          test -s package-validation/bin/remote-ui
+          test -d package-validation/config
+          test -d package-validation/data
+
+          python3 -m json.tool package-validation/release.json >/dev/null
 
           echo "Package SHA-256:"
           sha256sum remote3-activity-lock-custom-ui.tar.gz
