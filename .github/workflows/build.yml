@@ -42,7 +42,6 @@ jobs:
           set -euxo pipefail
           mkdir -p remote-ui/build
           mkdir -p remote-ui/binaries
-          echo "UC_BIN=${GITHUB_WORKSPACE}/remote-ui/binaries/linux-arm64/release" >> "$GITHUB_ENV"
 
       - name: Build with official upstream ARM64 toolchain
         shell: bash
@@ -65,23 +64,66 @@ jobs:
           test -n "$BINARY"
           test -s "$BINARY"
 
-          echo "BINARY=$BINARY" >> "$GITHUB_ENV"
           file "$BINARY"
           file "$BINARY" | grep -Ei 'ARM aarch64|ARM64'
 
-          mkdir -p artifact
-          cp "$BINARY" artifact/remote-ui
-          if [ -f "$(dirname "$BINARY")/version.txt" ]; then
-            cp "$(dirname "$BINARY")/version.txt" artifact/version.txt
-          fi
-          chmod +x artifact/remote-ui
-          tar czvf remote3-activity-lock-arm64.tar.gz -C artifact .
-          ls -lah artifact remote3-activity-lock-arm64.tar.gz
+          echo "BINARY=$BINARY" >> "$GITHUB_ENV"
 
-      - name: Upload Remote 3 ARM64 artifact
+      - name: Build validated custom UI installation package
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf custom-ui-package
+          mkdir -p custom-ui-package/bin custom-ui-package/config custom-ui-package/data
+
+          cp "$BINARY" custom-ui-package/bin/remote-ui
+          chmod +x custom-ui-package/bin/remote-ui
+
+          cat > custom-ui-package/release.json <<'JSON'
+          {
+            "name": {
+              "en": "Remote 3 Activity / Child Lock"
+            },
+            "version": "0.1.0-activity-lock",
+            "description": {
+              "en": "Custom Remote 3 UI with an optional activity / child lock."
+            },
+            "developer": {
+              "name": "celle150190-prog"
+            },
+            "home_page": "https://github.com/celle150190-prog/uc-remote3-activity-lock",
+            "release_date": "2026-08-30",
+            "requirements": {
+              "firmware_version": ">=2.10.1,<3.0.0"
+            }
+          }
+          JSON
+
+          python3 -m json.tool custom-ui-package/release.json >/dev/null
+          test -x custom-ui-package/bin/remote-ui
+          test -s custom-ui-package/bin/remote-ui
+          test -d custom-ui-package/config
+          test -d custom-ui-package/data
+
+          tar -tzf /dev/null 2>/dev/null || true
+          tar czvf remote3-activity-lock-custom-ui.tar.gz -C custom-ui-package .
+
+          echo "Package contents:"
+          tar tzvf remote3-activity-lock-custom-ui.tar.gz
+
+          echo "Checking required package entries..."
+          tar tzf remote3-activity-lock-custom-ui.tar.gz | grep -qx './release.json'
+          tar tzf remote3-activity-lock-custom-ui.tar.gz | grep -qx './bin/remote-ui'
+          tar tzf remote3-activity-lock-custom-ui.tar.gz | grep -qx './config/'
+          tar tzf remote3-activity-lock-custom-ui.tar.gz | grep -qx './data/'
+
+          echo "Package SHA-256:"
+          sha256sum remote3-activity-lock-custom-ui.tar.gz
+
+      - name: Upload Remote 3 custom UI installation package
         uses: actions/upload-artifact@v4
         with:
-          name: remote3-activity-lock-arm64
-          path: remote3-activity-lock-arm64.tar.gz
+          name: remote3-activity-lock-custom-ui
+          path: remote3-activity-lock-custom-ui.tar.gz
           if-no-files-found: error
           retention-days: 7
