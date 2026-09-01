@@ -158,9 +158,9 @@ jobs:
           test -n "$WINDOW_ID"
           xdotool windowfocus --sync "$WINDOW_ID"
           xdotool mousemove --window "$WINDOW_ID" 20 425
-          xdotool mousedown --window "$WINDOW_ID" 1
+          xdotool mousedown 1
           xdotool mousemove --window "$WINDOW_ID" 460 425
-          xdotool mouseup --window "$WINDOW_ID" 1
+          xdotool mouseup 1
 
           for attempt in {1..10}; do
             if grep -Fq "[activity-lock] unlocked" simulator-ui.log; then
