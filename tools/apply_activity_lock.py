@@ -162,8 +162,12 @@ Item {
     MouseArea {
         anchors.fill: parent
         preventStealing: true
-        onPressed: lock.touchStartX = mouse.x
+        onPressed: {
+            lock.touchStartX = mouse.x
+            console.info("[activity-lock] touch started at " + mouse.x)
+        }
         onReleased: {
+            console.info("[activity-lock] touch released at " + mouse.x)
             if (Config.activityLockTouchUnlock && mouse.x - lock.touchStartX >= lock.unlockDistance) lock.unlock()
         }
     }
