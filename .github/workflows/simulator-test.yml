@@ -52,7 +52,7 @@ jobs:
       - name: Install desktop test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libgl1-mesa-dev xvfb xdotool
+          sudo apt-get install -y build-essential libgl1-mesa-dev xvfb xdotool x11-utils
 
       # Qt Linguist from Qt 5.15.2 requires ICU 56, which is not provided by Ubuntu 22.04.
       - name: Build ICU 56 for Qt Linguist
@@ -116,9 +116,16 @@ jobs:
           sliderUnlock=false
           INI
 
-          Xvfb :99 -screen 0 480x850x24 >/tmp/xvfb.log 2>&1 &
+          Xvfb :99 -ac -screen 0 480x850x24 >/tmp/xvfb.log 2>&1 &
           XVFB_PID=$!
           export DISPLAY=:99
+          for attempt in {1..20}; do
+            if xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          xdpyinfo -display "$DISPLAY" >/dev/null
           export UC_MODEL=DEV
           export UC_DISPLAY_WIDTH=480
           export UC_DISPLAY_HEIGHT=850
