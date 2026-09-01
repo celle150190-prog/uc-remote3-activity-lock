@@ -77,7 +77,9 @@ Item {
     }
     function setLocked(value) {
         if (value && !validUnlockMethod()) return;
+        if (locked === value) return;
         locked = value;
+        console.info("[activity-lock] " + (locked ? "locked" : "unlocked"));
         TouchSliderProcessor.activityLockActive = locked;
         ui.inputController.activityLockActive = locked;
         inactivityTimer.stop();
