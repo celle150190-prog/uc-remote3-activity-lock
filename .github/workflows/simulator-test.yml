@@ -1,0 +1,167 @@
+name: Simulator validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [simulator-validation]
+    paths:
+      - 'tools/**'
+      - '.github/workflows/simulator-test.yml'
+  pull_request:
+    paths:
+      - 'tools/**'
+      - '.github/workflows/simulator-test.yml'
+
+permissions:
+  contents: read
+
+env:
+  UPSTREAM_COMMIT: f3d34daea76239a92b5d43793f9eb849e5d0fc19
+  QT_VERSION: 5.15.2
+
+jobs:
+  remote3-simulator:
+    name: Remote 3 simulator lock test
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout overlay
+        uses: actions/checkout@v4
+        with:
+          path: overlay
+
+      - name: Checkout pinned Remote UI
+        uses: actions/checkout@v4
+        with:
+          repository: unfoldedcircle/remote-ui
+          ref: ${{ env.UPSTREAM_COMMIT }}
+          path: remote-ui
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Checkout Core Simulator
+        uses: actions/checkout@v4
+        with:
+          repository: unfoldedcircle/core-simulator
+          path: core-simulator
+
+      - name: Apply Activity Lock patch
+        run: python3 overlay/tools/apply_activity_lock.py remote-ui
+
+      - name: Install desktop test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libgl1-mesa-dev xvfb xdotool
+
+      # Qt Linguist from Qt 5.15.2 requires ICU 56, which is not provided by Ubuntu 22.04.
+      - name: Build ICU 56 for Qt Linguist
+        run: |
+          wget -q https://github.com/unicode-org/icu/releases/download/release-56-2/icu4c-56_2-src.tgz
+          tar xzf icu4c-56_2-src.tgz
+          cd icu/source
+          chmod +x runConfigureICU configure install-sh
+          ./runConfigureICU Linux
+          make -j"$(nproc)"
+          sudo make install
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: ${{ env.QT_VERSION }}
+          modules: qtvirtualkeyboard
+          archives: qtbase qtdeclarative qtmultimedia qtquickcontrols2 qtsvg qttools qtwebsockets
+          cache: true
+          cache-key-prefix: activity-lock-simulator-${{ env.QT_VERSION }}
+
+      - name: Start Remote 3 Core Simulator
+        run: |
+          mkdir -p core-simulator/docker/ui-env core-simulator/docker/upload
+          chmod 777 core-simulator/docker/ui-env core-simulator/docker/upload
+          docker compose -f core-simulator/docker/docker-compose.yml up -d core-simulator
+
+          for attempt in {1..60}; do
+            if test -s core-simulator/docker/ui-env/ws-token && \
+               curl --fail --silent --show-error --user web-configurator:1234 \
+                 http://127.0.0.1:8080/api/pub/status >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          docker compose -f core-simulator/docker/docker-compose.yml logs core-simulator
+          exit 1
+
+      - name: Build patched desktop UI
+        run: |
+          mkdir -p remote-ui/build remote-ui/binaries
+          cd remote-ui/build
+          qmake ../remote-ui.pro CONFIG+=release
+          make -j"$(nproc)"
+
+          UI_BINARY="$(find ../binaries -type f -name remote-ui -perm -u+x -print -quit)"
+          test -n "$UI_BINARY"
+          echo "UI_BINARY=$(realpath "$UI_BINARY")" >> "$GITHUB_ENV"
+
+      - name: Verify inactivity lock and touchscreen unlock
+        run: |
+          set -euo pipefail
+          mkdir -p simulator-config
+          cat > simulator-config/config.ini <<'INI'
+          [activitylock]
+          enabled=true
+          inactivityTimeoutSec=1
+          onWake=false
+          touchUnlock=true
+          sliderUnlock=false
+          INI
+
+          Xvfb :99 -screen 0 480x850x24 >/tmp/xvfb.log 2>&1 &
+          XVFB_PID=$!
+          export DISPLAY=:99
+          export UC_MODEL=DEV
+          export UC_DISPLAY_WIDTH=480
+          export UC_DISPLAY_HEIGHT=850
+          export UC_DISPLAY_SCALE=1
+          export UC_SOCKET_URL=ws://127.0.0.1:8080/ws
+          export UC_TOKEN_PATH="$GITHUB_WORKSPACE/core-simulator/docker/ui-env/ws-token"
+          export UC_CONFIG_HOME="$GITHUB_WORKSPACE/simulator-config"
+
+          "$UI_BINARY" > simulator-ui.log 2>&1 &
+          UI_PID=$!
+          cleanup() {
+            kill "$UI_PID" "$XVFB_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          for attempt in {1..20}; do
+            kill -0 "$UI_PID"
+            if grep -Fq "[activity-lock] locked" simulator-ui.log; then
+              break
+            fi
+            sleep 1
+          done
+          grep -F "[activity-lock] locked" simulator-ui.log
+
+          xdotool mousemove 20 425
+          xdotool mousedown 1
+          xdotool mousemove 460 425
+          xdotool mouseup 1
+
+          for attempt in {1..10}; do
+            if grep -Fq "[activity-lock] unlocked" simulator-ui.log; then
+              break
+            fi
+            sleep 1
+          done
+          grep -F "[activity-lock] unlocked" simulator-ui.log
+
+      - name: Show simulator logs when a test fails
+        if: failure()
+        run: |
+          test -f simulator-ui.log && cat simulator-ui.log || true
+          docker compose -f core-simulator/docker/docker-compose.yml logs core-simulator || true
+
+      - name: Stop Core Simulator
+        if: always()
+        run: docker compose -f core-simulator/docker/docker-compose.yml down -v
