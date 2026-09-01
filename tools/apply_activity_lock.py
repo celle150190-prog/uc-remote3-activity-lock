@@ -161,6 +161,7 @@ Item {
 
     MouseArea {
         anchors.fill: parent
+        z: 1
         preventStealing: true
         onPressed: {
             lock.touchStartX = mouse.x
