@@ -150,10 +150,17 @@ jobs:
           done
           grep -F "[activity-lock] locked" simulator-ui.log
 
-          xdotool mousemove 20 425
-          xdotool mousedown 1
-          xdotool mousemove 460 425
-          xdotool mouseup 1
+          for attempt in {1..10}; do
+            WINDOW_ID="$(xdotool search --onlyvisible --name "Remote Two simulator" | head -n 1 || true)"
+            test -n "$WINDOW_ID" && break
+            sleep 1
+          done
+          test -n "$WINDOW_ID"
+          xdotool windowfocus --sync "$WINDOW_ID"
+          xdotool mousemove --window "$WINDOW_ID" 20 425
+          xdotool mousedown --window "$WINDOW_ID" 1
+          xdotool mousemove --window "$WINDOW_ID" 460 425
+          xdotool mouseup --window "$WINDOW_ID" 1
 
           for attempt in {1..10}; do
             if grep -Fq "[activity-lock] unlocked" simulator-ui.log; then
